@@ -11,73 +11,75 @@ namespace HtmlSerializer
             var root = new HtmlElement { Name = "root" };
             var currentElement = root;
 
-            // Clean up the HTML string and split into lines based on tags
             var cleanHtml = Regex.Replace(html, @"\s+", " ");
             var htmlLines = Regex.Split(cleanHtml, @"(<[^>]+>)").Where(s => !string.IsNullOrEmpty(s)).ToArray();
 
-            foreach (var line in htmlLines)
+            for (int i = 0; i < htmlLines.Length; i++)
             {
-                var trimmedLine = line.Trim();
-                if (string.IsNullOrEmpty(trimmedLine))
-                    continue;
+                var line = htmlLines[i].Trim();
+                if (string.IsNullOrEmpty(line)) continue;
 
-                var firstWord = trimmedLine.Split(' ')[0].Replace("<", "").Replace(">", "");
-
-                if (firstWord.Equals("html/", StringComparison.OrdinalIgnoreCase))
-                {
-                    // End of HTML
-                    break;
-                }
+                var firstWord = line.Split(' ')[0].Trim('<', '>');
+                if (firstWord.Equals("html/", StringComparison.OrdinalIgnoreCase)) break;
 
                 if (firstWord.StartsWith("/"))
                 {
-                    // Closing tag
                     currentElement = currentElement.Parent; // Move up in the tree
                 }
                 else
                 {
-                    // Opening tag
-                    var isSelfClosing = trimmedLine.EndsWith("/>") || HtmlHelper.Instance.SelfClosingTags.Contains(firstWord);
-                    var newElement = new HtmlElement { Name = firstWord, Parent = currentElement };
+                    var isSelfClosing = line.EndsWith("/>") || HtmlHelper.Instance.SelfClosingTags.Contains(firstWord);
+                    var newElement = CreateNewElement(firstWord, line, currentElement);
                     currentElement.Children.Add(newElement);
 
-                    // Parse attributes
-                    var attributesString = trimmedLine.Substring(firstWord.Length + 1).Trim().TrimEnd('>');
-                    ParseAttributes(attributesString, newElement);
-
+                    if (!isSelfClosing && i + 1 < htmlLines.Length && !htmlLines[i + 1].StartsWith("<"))
+                    {
+                        newElement.InnerText = htmlLines[i + 1].Trim();
+                        i++;
+                    }
                     if (!isSelfClosing)
                     {
-                        currentElement = newElement; // Move to the new element
+                        currentElement = newElement;
                     }
                 }
             }
-
             return root;
         }
 
-        private void ParseAttributes(string attributesString, HtmlElement element)
+        private HtmlElement CreateNewElement(string tagName, string originalLine, HtmlElement parent)
         {
+            var newElement = new HtmlElement
+            {
+                Name = tagName,
+                Parent = parent,
+                OriginalLine = originalLine
+            };
+            ParseAttributes(originalLine, newElement);
+            return newElement;
+        }
+
+        private void ParseAttributes(string line, HtmlElement element)
+        {
+            var attributesString = line.Substring(line.IndexOf(' ') + 1).Trim().TrimEnd('>');
             var attributePattern = @"(\w+)=""([^""]*)""";
             var matches = Regex.Matches(attributesString, attributePattern);
-
             foreach (Match match in matches)
             {
                 if (match.Groups.Count == 3)
                 {
                     var key = match.Groups[1].Value;
                     var value = match.Groups[2].Value;
-
                     if (key.Equals("id", StringComparison.OrdinalIgnoreCase))
                     {
-                        element.Id = value; // Set the ID of the element
+                        element.Id = value;
                     }
                     else if (key.Equals("class", StringComparison.OrdinalIgnoreCase))
                     {
-                        element.Classes.AddRange(value.Split(' ')); // Add classes to the element
+                        element.Classes.AddRange(value.Split(' ', StringSplitOptions.RemoveEmptyEntries));
                     }
                     else
                     {
-                        element.Attributes.Add(new KeyValuePair<string, string>(key, value)); // Add other attributes to the element
+                        element.Attributes.Add(new KeyValuePair<string, string>(key, value));
                     }
                 }
             }
